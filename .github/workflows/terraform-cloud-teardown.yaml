@@ -1,0 +1,49 @@
+name: 'Terraform_Destroy'
+ 
+on:
+  workflow_dispatch:
+    inputs:
+      workspace_name:
+        description: "Terraform Cloud workspace name"
+        required: true
+        type: string
+      tfc_org_url:
+        description: "Terraform Cloud Org URL"
+        required: true
+        type: string
+jobs:
+  terraform:
+    name: 'Terraform'
+    env:
+      TFE_TOKEN: ${{ secrets.TFE_TOKEN}}
+    runs-on: ubuntu-latest
+    environment: production
+ 
+    defaults:
+      run:
+        working-directory: "./terraform-cloud"
+ 
+    steps:
+    - uses: actions/checkout@v2
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        cli_config_credentials_token: ${{ secrets.TFE_TOKEN }}
+
+    - name: Construct new workspace
+      id: new_workspace
+      run: sed -i 's/WORKSPACE_NAME/${{ github.event.inputs.workspace_name }}/' main.tf
+
+    - name: Terraform Init
+      id: init
+      run: terraform init
+
+    - name: Terraform Destroy
+      id: destroy
+      run: terraform destroy -auto-approve
+      continue-on-error: true
+
+    - name: Delete Terraform Cloud workspace
+      id: delete_workspace
+      run: |
+        curl -H 'Authorization:Bearer ${{ secrets.TFE_TOKEN }}' -H 'Content-Type:application/vnd.api+json' -X DELETE ${{ github.event.inputs.tfc_org_url }}/workspaces/${{ github.event.inputs.workspace_name }}
+      continue-on-error: true

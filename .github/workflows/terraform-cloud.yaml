@@ -1,0 +1,79 @@
+name: 'Terraform'
+ 
+on:
+  workflow_dispatch:
+    inputs:
+      tfc_workspace:
+        description: "terraform cloud workspace name"
+        required: true
+        type: string
+      rg_name:
+        description: "resource group name"
+        required: true
+        type: string
+      project_id:
+        description: "project id"
+        required: true
+        type: string
+      costcenter_id:
+        description: "costcenter id"
+        required: true
+        type: string
+      resource_id:
+        description: "CMP resource id"
+        required: true
+        type: string
+      webhook_url:
+        description: "CMP webhook"
+        required: true
+        type: string
+jobs:
+  terraform:
+    name: 'Terraform'
+    env:
+      TFE_TOKEN: ${{ secrets.TFE_TOKEN}}
+    runs-on: ubuntu-latest
+    environment: production
+ 
+    defaults:
+      run:
+        working-directory: "./terraform-cloud"
+ 
+    steps:
+    - uses: actions/checkout@v2
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        cli_config_credentials_token: ${{ secrets.TFE_TOKEN }}
+        terraform_wrapper: false
+
+    - name: Construct new workspace
+      id: new_workspace
+      run: sed -i 's/WORKSPACE_NAME/${{ github.event.inputs.tfc_workspace }}/' main.tf
+
+    - name: Terraform Init
+      id: init
+      run: terraform init
+
+    - name: Terraform Apply
+      id: apply
+      run: |
+        terraform apply -auto-approve -no-color \
+                  -var rg_name="${{ github.event.inputs.rg_name }}" \
+                  -var project_id="${{ github.event.inputs.project_id }}" \
+                  -var costcenter_id="${{ github.event.inputs.costcenter_id }}"
+      continue-on-error: true
+
+    - name: Terraform Show
+      id: terraform_show
+      run: |
+        RESULT="$(terraform show -json)"
+        echo $RESULT
+        echo "result=$RESULT" >> $GITHUB_OUTPUT
+
+    - name: Call back to CMP
+      id: call_back_cmp
+      shell: bash
+      run: |
+        RESPONSE=$(curl -X POST --fail -k -H "Content-Type: application/json" -d '{"resource_id":${{ github.event.inputs.resource_id }},"tf_result":${{ steps.terraform_show.outputs.result}} }' '${{ github.event.inputs.webhook_url }}')
+        echo $RESPONSE
+      continue-on-error: true
